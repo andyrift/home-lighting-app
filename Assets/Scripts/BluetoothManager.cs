@@ -57,7 +57,7 @@ public class BluetoothManager : MonoBehaviour
     // DO NOT CHANGE ITS NAME OR IT WILL NOT BE FOUND BY THE JAVA CLASS
     public void ScanStatus(string status)
     {
-        Toast("Scan Status: " + status);
+        //Toast("Scan Status: " + status);
     }
 
     // This function will be called by Java class whenever a new device is found,
@@ -107,7 +107,7 @@ public class BluetoothManager : MonoBehaviour
     // DO NOT CHANGE ITS NAME OR IT WILL NOT BE FOUND BY THE JAVA CLASS
     public void ConnectionStatus(string status)
     {
-        Toast("Connection Status: " + status);
+        //Toast("Connection Status: " + status);
         isConnected = status == "connected";
         ConnectionStatusEvent.Invoke(status);
     }

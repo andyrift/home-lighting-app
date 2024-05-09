@@ -8,12 +8,10 @@ using UnityEngine.UI;
 
 public class App : MonoBehaviour
 {
-    private float _value;
-    private float _valueHot = 0f;
-    private float _valueCold = 0f;
+    private int _valueHot = 0;
+    private int _valueCold = 0;
     private TMP_Text[] _vitals = new TMP_Text[4];
 
-    private TMP_Text _numberText;
     private TMP_Text _outputText;
     private TMP_InputField _inputField;
 
@@ -21,18 +19,17 @@ public class App : MonoBehaviour
 
     private string _hcMAC = "";
 
+    private bool _connecting = false;
+
+    private bool _waitingReconnect = false;
+    private float _reconnectTimer = 0f;
+    private float _timeToWait = 3f;
+
     // Is set to execute after default time so everything starts before the app,
     // so the app can init everything after that in custom order
     private void Start() 
     {
-        _value = 0f;
-
-        GameObject slider = GameObject.Find("MainSlider");
-        slider.GetComponent<Slider>().SetValueWithoutNotify(_value);
-
-        _numberText = GameObject.Find("NumberField").GetComponent<TMP_Text>();
         _outputText = GameObject.Find("OutputField").GetComponent<TMP_Text>();
-        UpdateOutput();
 
         _inputField = GameObject.Find("InputField").GetComponent<TMP_InputField>();
 
@@ -48,25 +45,59 @@ public class App : MonoBehaviour
         _vitals[2].text = "Not connected";
         bluetoothManager.ReadDataEvent += (string data) =>
         {
-            bluetoothManager.Toast("Recieved: " + data);
+            if (data.StartsWith("hcv")) 
+            {
+                string[] vals = data.Substring(3, data.Length - 3).Split(',');
+                _valueHot = int.Parse(vals[0]);
+                _valueCold = int.Parse(vals[1]);
+                GameObject.Find("HotSlider").GetComponent<Slider>().SetValueWithoutNotify(_valueHot);
+                GameObject.Find("ColdSlider").GetComponent<Slider>().SetValueWithoutNotify(_valueCold);
+            } 
+            else if (data.StartsWith("tl"))
+            {
+                string location = data.Substring(2, data.Length - 2);
+                GameObject.Find("LocationInput").GetComponent<TMP_InputField>().text = location;
+            }
+            else if (data.StartsWith("wifi"))
+            {
+                string[] wifi = data.Substring(4, data.Length - 4).Split('+');
+
+                GameObject.Find("ssidInput").GetComponent<TMP_InputField>().text = wifi[0];
+                GameObject.Find("passwordInput").GetComponent<TMP_InputField>().text = wifi[1];
+            }
+            else bluetoothManager.Toast("Recieved: " + data);
         };
 
         bluetoothManager.ConnectionStatusEvent += (string status) =>
         {
+            _vitals[3].text = status;
             if (status == "connected")
             {
+                _connecting = false;
                 _vitals[2].text = "Connected";
+                Refresh();
+                // bluetoothManager.Toast("Successfully connected!");
+            }
+            else if (status == "connecting")
+            {
+                _vitals[2].text = "Connecting...";
             }
             else
             {
+                _connecting = false;
                 _vitals[2].text = "Could not connect";
+                _waitingReconnect = true;
             }
         };
 
-        FindHC();
-        ConnectToHc();
-        SendHot();
-        SendCold();
+        TryConnect(true);
+    }
+
+    public void Refresh()
+    {
+        bluetoothManager.WriteData("gv\n");
+        bluetoothManager.WriteData("gtl\n");
+        bluetoothManager.WriteData("gwifi\n");
     }
 
     private void FindHC() 
@@ -85,21 +116,45 @@ public class App : MonoBehaviour
         }
     }
 
-    private void ConnectToHc()
+    private void ConnectToHc(bool toast = false)
     {
         if (_hcMAC.Length > 0)
         {
             bluetoothManager.StartConnection(_hcMAC);
-        } else {
-            bluetoothManager.Toast("Device not found");
-            _vitals[2].text = "Could not connect";
+        } 
+        else 
+        {
+            _connecting = false;
+            if (toast)
+                bluetoothManager.Toast("Device not found");
+            _vitals[2].text = "Device not found";
+            _waitingReconnect = true;
         }
     }
 
-    public void HandleSliderChange(float value) 
+    public void TryConnect(bool toast = false)
     {
-        _value = value;
-        UpdateOutput();
+        if (!_connecting) {
+            _connecting = true;
+            _vitals[2].text = "Connecting...";
+            FindHC();
+            ConnectToHc(toast);
+        } else {
+            bluetoothManager.Toast("Already Connecting");
+        }
+    }
+
+    public void SubmitWIFI()
+    {
+        string ssid = GameObject.Find("ssidInput").GetComponent<TMP_InputField>().text;
+        string password = GameObject.Find("passwordInput").GetComponent<TMP_InputField>().text;
+        bluetoothManager.WriteData("wifi" + ssid + "+" + password);
+    }
+
+    public void SubmitLocation()
+    {
+        string location = GameObject.Find("LocationInput").GetComponent<TMP_InputField>().text;
+        bluetoothManager.WriteData("tl" + location);
     }
 
     public void Send()
@@ -109,41 +164,32 @@ public class App : MonoBehaviour
 
     private void SendHot()
     {
-        byte val = (byte)(_valueHot * 255);
-        bluetoothManager.WriteData("hv" + val.ToString() + "\n");
+        bluetoothManager.WriteData("hv" + _valueHot.ToString() + "\n");
     }
+
     private void SendCold()
     {
-        byte val = (byte)(_valueCold * 255);
-        bluetoothManager.WriteData("cv" + val.ToString() + "\n");
+        bluetoothManager.WriteData("cv" + _valueCold.ToString() + "\n");
     }
 
     public void PrintSliderValues()
     {
-        int val = (int)(_valueHot * 255);
-        _vitals[0].text = "Hot Value: " + val.ToString();
-        val = (int)(_valueCold * 255);
-        _vitals[1].text = "Cold Value: " + val.ToString();
+        _vitals[0].text = "Hot Value: " + _valueHot.ToString();
+        _vitals[1].text = "Cold Value: " + _valueCold.ToString();
     }
 
     public void HandleHotSliderChange(float value)
     {
-        _valueHot = value;
+        _valueHot = (int)value;
         PrintSliderValues();
         SendHot();
     }
 
     public void HandleColdSliderChange(float value)
     {
-        _valueCold = value;
+        _valueCold = (int)value;
         PrintSliderValues();
         SendCold();
-    }
-
-    private void UpdateOutput()
-    {
-        int val = (int)(_value * 255);
-        _numberText.text = val.ToString();
     }
 
     public void GetLocations()
@@ -175,6 +221,17 @@ public class App : MonoBehaviour
         {
             string str = www.downloadHandler.text;
             _outputText.text = str;
+        }
+    }
+
+    private void Update() {
+        if (_waitingReconnect) {
+            _reconnectTimer += Time.deltaTime;
+            if (_reconnectTimer > _timeToWait) {
+                _reconnectTimer = 0f;
+                _waitingReconnect = false;
+                TryConnect();
+            }
         }
     }
 }
